@@ -1,0 +1,51 @@
+# Network Packet Analyzer — Configuration File
+
+network:
+  # Your network interface - run get_interfaces.py to find yours
+  # Windows: use your NPF interface
+  # Docker/Linux: use eth0
+  interface: '\Device\NPF_{A9E01166-5035-43C6-9FC5-34FD2C3737A9}'
+  docker_interface: 'eth0'
+  filter: "ip"                  # BPF filter — "ip", "tcp", "udp port 53"
+  max_packets: 100              # max packets shown in dashboard feed
+  max_raw_packets: 10000        # max packets stored for PCAP export
+
+detection:
+  port_scan_threshold: 15       # ports touched before scan alert fires
+  risky_ports:                  # connections to these trigger HIGH alert
+    - 22    # SSH
+    - 23    # Telnet
+    - 445   # SMB
+    - 139   # NetBIOS
+    - 3389  # RDP
+    - 4444  # Metasploit default
+    - 1433  # MSSQL
+    - 3306  # MySQL
+  medium_ports:                 # connections to these trigger MEDIUM alert
+    - 80    # HTTP
+    - 8080  # HTTP alt
+    - 21    # FTP
+    - 25    # SMTP
+
+ml:
+  enabled: true
+  baseline_duration: 120        # seconds to collect before training
+  contamination: 0.05           # expected anomaly rate (5%)
+  retrain_interval: 3600        # auto retrain every hour (seconds)
+
+threat_intel:
+  enabled: true
+  min_score: 20                 # minimum AbuseIPDB score to alert
+  max_age_days: 90              # how old reports to consider
+
+alerts:
+  email:
+    enabled: true
+    cooldown_seconds: 300       # min seconds between same alert type
+  dashboard:
+    max_alerts: 50              # max alerts shown in dashboard
+
+web:
+  host: "0.0.0.0"
+  port: 5000
+  debug: false

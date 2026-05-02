@@ -1,0 +1,9 @@
+scapy
+flask
+requests
+colorama
+rich
+python-dotenv
+pyyaml
+scikit-learn
+numpy

@@ -1,0 +1,537 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Network Packet Analyzer</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #0a0e1a; color: #e0e6f0; font-family: 'Courier New', monospace; font-size: 13px; }
+
+  header {
+    background: #0d1117; border-bottom: 1px solid #1e3a5f;
+    padding: 12px 20px; display: flex; align-items: center; justify-content: space-between;
+  }
+  header h1 { color: #00b4d8; font-size: 16px; letter-spacing: 2px; }
+  .live-dot { width: 8px; height: 8px; background: #00ff88; border-radius: 50%; display: inline-block; margin-right: 6px; animation: pulse 1s infinite; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.3} }
+  .status { font-size: 12px; color: #888; }
+
+  .stats-bar {
+    display: grid; grid-template-columns: repeat(5, 1fr);
+    gap: 10px; padding: 12px 16px; background: #0d1117; border-bottom: 1px solid #1e3a5f;
+  }
+  .stat-card { background: #111827; border: 1px solid #1e3a5f; border-radius: 8px; padding: 10px 14px; text-align: center; }
+  .stat-val { font-size: 22px; font-weight: bold; color: #00b4d8; }
+  .stat-label { font-size: 11px; color: #666; margin-top: 2px; text-transform: uppercase; letter-spacing: 1px; }
+
+  .grid {
+    display: grid;
+    grid-template-columns: 1fr 380px;
+    gap: 10px; padding: 10px;
+    height: calc(100vh - 130px);
+    overflow: hidden;
+  }
+
+  .panel {
+    background: #0d1117; border: 1px solid #1e3a5f; border-radius: 10px;
+    overflow: hidden; display: flex; flex-direction: column;
+    transition: all .3s ease; cursor: pointer;
+    min-height: 0;
+  }
+  .panel.expanded {
+    position: fixed; top: 10px; left: 10px;
+    width: calc(100vw - 20px); height: calc(100vh - 20px);
+    z-index: 1000; cursor: default;
+  }
+  .panel-header {
+    padding: 10px 14px; background: #111827; border-bottom: 1px solid #1e3a5f;
+    display: flex; align-items: center; justify-content: space-between;
+    cursor: pointer;
+  }
+  .panel-title { color: #00b4d8; font-size: 12px; font-weight: bold; letter-spacing: 1px; text-transform: uppercase; }
+  .expand-btn { color: #444; font-size: 16px; transition: color .2s; }
+  .panel:hover .expand-btn { color: #00b4d8; }
+  .panel-body { overflow-y: auto; flex: 1; padding: 8px 0; }
+
+  /* Feed table */
+  .feed-table { width: 100%; border-collapse: collapse; }
+  .feed-table th { padding: 6px 10px; text-align: left; color: #4a6fa5; font-size: 11px; text-transform: uppercase; letter-spacing: 1px; border-bottom: 1px solid #1e3a5f; position: sticky; top: 0; background: #0d1117; }
+  .feed-table td { padding: 5px 10px; border-bottom: 1px solid #0a0e1a; white-space: nowrap; }
+  .feed-table tr:hover td { background: #111827; }
+
+  .level-CRITICAL { color: #fff; background: #7f1d1d; padding: 1px 6px; border-radius: 4px; font-size: 11px; }
+  .level-HIGH     { color: #f87171; font-weight: bold; }
+  .level-MEDIUM   { color: #fbbf24; }
+  .level-LOW      { color: #67e8f9; }
+  .level-NORMAL   { color: #4ade80; }
+  .proto-TCP  { color: #4ade80; }
+  .proto-UDP  { color: #fbbf24; }
+  .proto-ICMP { color: #67e8f9; }
+  .proto-OTHER{ color: #888; }
+
+  /* Alerts */
+  .alert-item { padding: 10px 14px; border-bottom: 1px solid #1a2035; }
+  .alert-item:hover { background: #111827; }
+  .alert-sev-CRITICAL { border-left: 3px solid #ef4444; }
+  .alert-sev-HIGH     { border-left: 3px solid #f97316; }
+  .alert-sev-MEDIUM   { border-left: 3px solid #eab308; }
+  .alert-time { color: #555; font-size: 11px; }
+  .alert-src  { color: #f87171; font-weight: bold; margin: 2px 0; }
+  .alert-msg  { color: #fbbf24; font-size: 12px; }
+  .alert-mitre{ color: #67e8f9; font-size: 11px; margin-top: 3px; }
+  .alert-tactic { color: #555; font-size: 11px; }
+  .no-alerts { padding: 20px; color: #2d5a27; text-align: center; }
+
+  /* Threat intel */
+  .threat-item { padding: 8px 14px; border-bottom: 1px solid #1a2035; display: flex; align-items: center; justify-content: space-between; }
+  .threat-item:hover { background: #111827; }
+  .threat-ip { color: #e0e6f0; font-size: 12px; }
+  .threat-score { font-weight: bold; font-size: 13px; }
+  .score-high   { color: #ef4444; }
+  .score-medium { color: #fbbf24; }
+  .score-low    { color: #4ade80; }
+  .threat-reports { color: #555; font-size: 11px; }
+
+  /* Top IPs */
+  .ip-item { padding: 7px 14px; border-bottom: 1px solid #1a2035; display: flex; justify-content: space-between; align-items: center; }
+  .ip-item:hover { background: #111827; }
+  .ip-addr { color: #e0e6f0; }
+  .ip-count { color: #00b4d8; font-weight: bold; }
+  .ip-geo { color: #555; font-size: 11px; }
+
+  .sidebar {
+    display: flex; flex-direction: column; gap: 10px;
+    height: 100%; overflow: hidden;
+  }
+
+  .empty { padding: 20px; color: #333; text-align: center; }
+  ::-webkit-scrollbar { width: 4px; } 
+  ::-webkit-scrollbar-track { background: #0a0e1a; }
+  ::-webkit-scrollbar-thumb { background: #1e3a5f; border-radius: 2px; }
+  
+</style>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script> 
+</head>
+<body>
+
+<header>
+  <h1>⚡ NETWORK PACKET ANALYZER</h1>
+  <div style="display:flex; align-items:center; gap:16px;">
+    <button onclick="exportPcap()" id="export-btn" style="
+      background: transparent;
+      border: 1px solid #1e3a5f;
+      color: #00b4d8;
+      padding: 6px 14px;
+      border-radius: 6px;
+      font-family: 'Courier New', monospace;
+      font-size: 12px;
+      cursor: pointer;
+      transition: all .2s;
+    " onmouseover="this.style.background='#1e3a5f'" 
+       onmouseout="this.style.background='transparent'">
+      ⬇ Export PCAP
+    </button>
+    <div class="status"><span class="live-dot"></span>LIVE CAPTURE &nbsp;|&nbsp; <span id="ts">--:--:--</span></div>
+  </div>
+</header>
+
+<div class="stats-bar">
+  <div class="stat-card"><div class="stat-val" id="s-total">0</div><div class="stat-label">Total Packets</div></div>
+  <div class="stat-card"><div class="stat-val" style="color:#4ade80" id="s-tcp">0</div><div class="stat-label">TCP</div></div>
+  <div class="stat-card"><div class="stat-val" style="color:#fbbf24" id="s-udp">0</div><div class="stat-label">UDP</div></div>
+  <div class="stat-card"><div class="stat-val" style="color:#67e8f9" id="s-icmp">0</div><div class="stat-label">ICMP</div></div>
+  <div class="stat-card"><div class="stat-val" style="color:#ef4444" id="s-alerts">0</div><div class="stat-label">Alerts</div></div>
+</div>
+
+<div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; padding:0 10px 10px; background:#0a0e1a;">
+  
+  <div style="background:#0d1117; border:1px solid #1e3a5f; border-radius:10px; padding:14px;">
+    <p style="color:#00b4d8; font-size:11px; font-weight:bold; letter-spacing:1px; text-transform:uppercase; margin:0 0 10px;">Protocol Breakdown</p>
+    <div style="position:relative; height:140px;">
+      <canvas id="proto-chart"></canvas>
+    </div>
+  </div>
+
+  <div style="background:#0d1117; border:1px solid #1e3a5f; border-radius:10px; padding:14px;">
+    <p style="color:#00b4d8; font-size:11px; font-weight:bold; letter-spacing:1px; text-transform:uppercase; margin:0 0 10px;">Packets / Second</p>
+    <div style="position:relative; height:140px;">
+      <canvas id="timeline-chart"></canvas>
+    </div>
+  </div>
+
+</div>
+
+<div class="grid">
+
+  <!-- Live Feed -->
+  <div class="panel" id="panel-feed" style="height: 100%; overflow: hidden;">
+    <div class="panel-header" onclick="toggleExpand('panel-feed')">
+      <span class="panel-title">📡 Live Packet Feed</span>
+      <span class="expand-btn" id="btn-feed">⛶</span>
+    </div>
+    <div class="panel-body">
+      <table class="feed-table">
+        <thead><tr>
+         <th>Level</th><th>Time</th><th>Proto</th>
+         <th>Source</th><th>Destination</th><th>Hostname</th><th>Location</th><th>Info</th>
+        </tr></thead>
+        <tbody id="feed-body"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="sidebar">
+    <!-- Alerts -->
+    <div class="panel" id="panel-alerts" style="flex:2; min-height:0;">
+      <div class="panel-header" onclick="toggleExpand('panel-alerts')">
+        <span class="panel-title">⚠ Alerts + MITRE ATT&CK</span>
+        <span class="expand-btn" id="btn-alerts">⛶</span>
+      </div>
+      <div class="panel-body" id="alerts-body">
+        <div class="no-alerts">No alerts yet — traffic looks normal</div>
+      </div>
+    </div>
+
+    <!-- ML Anomaly Detection -->
+    <div class="panel" id="panel-ml" style="flex:1.5; min-height:0;">
+      <div class="panel-header" onclick="toggleExpand('panel-ml')">
+        <span class="panel-title">🤖 ML Anomaly Detection</span>
+        <span class="expand-btn" id="btn-ml">⛶</span>
+      </div>
+      <div class="panel-body" id="ml-body">
+        <div class="empty">Initializing...</div>
+      </div>
+    </div>
+
+    <!-- Threat Intel -->
+   <div class="panel" id="panel-threat" style="flex:1.5; min-height:0;">
+      <div class="panel-header" onclick="toggleExpand('panel-threat')">
+        <span class="panel-title">🛡 Threat Intel (AbuseIPDB)</span>
+        <span class="expand-btn" id="btn-threat">⛶</span>
+      </div>
+      <div class="panel-body" id="threat-body">
+        <div class="empty">Checking IPs...</div>
+      </div>
+    </div>
+
+    <!-- Top Talkers -->
+    <div class="panel" id="panel-top" style="flex:1; min-height:0;">
+      <div class="panel-header" onclick="toggleExpand('panel-top')">
+        <span class="panel-title">📊 Top Talkers</span>
+        <span class="expand-btn" id="btn-top">⛶</span>
+      </div>
+      <div class="panel-body" id="top-body"></div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+const expanded = {};
+
+function toggleExpand(id) {
+  const panel = document.getElementById(id);
+  const btn   = document.getElementById('btn-' + id.replace('panel-',''));
+  if (expanded[id]) {
+    panel.classList.remove('expanded');
+    btn.textContent = '⛶';
+    expanded[id] = false;
+  } else {
+    panel.classList.add('expanded');
+    btn.textContent = '✕';
+    expanded[id] = true;
+  }
+}
+
+function levelBadge(level) {
+  return `<span class="level-${level}">${level}</span>`;
+}
+
+function protoSpan(proto) {
+  return `<span class="proto-${proto}">${proto}</span>`;
+}
+
+function scoreColor(score) {
+  if (score >= 50) return 'score-high';
+  if (score >= 20) return 'score-medium';
+  return 'score-low';
+}
+
+async function refresh() {
+  try {
+    const res  = await fetch('/api/stats');
+    const data = await res.json();
+
+    // Stats bar
+    document.getElementById('s-total').textContent  = data.total;
+    document.getElementById('s-tcp').textContent    = data.stats.TCP   || 0;
+    document.getElementById('s-udp').textContent    = data.stats.UDP   || 0;
+    document.getElementById('s-icmp').textContent   = data.stats.ICMP  || 0;
+    document.getElementById('s-alerts').textContent = data.alerts.length;
+    document.getElementById('ts').textContent       = new Date().toLocaleTimeString();
+    updateCharts(data.stats, data.total);
+
+    // Packet feed
+    const feedBody = document.getElementById('feed-body');
+   feedBody.innerHTML = data.packets.map(p => `
+      <tr>
+        <td>${levelBadge(p.level)}</td>
+        <td style="color:#555">${p.time}</td>
+        <td>${protoSpan(p.proto)}</td>
+        <td style="color:#e0e6f0">${p.src}</td>
+        <td style="color:#e0e6f0">${p.dst}</td>
+        <td style="color:#00b4d8;font-size:11px">${p.hostname || ''}</td>
+        <td style="color:#4a6fa5;font-size:11px">${p.location || ''}</td>
+        <td style="color:#888;font-size:11px">${p.info}</td>
+      </tr>`).join('');
+
+    // Alerts
+    const alertsBody = document.getElementById('alerts-body');
+    if (data.alerts.length === 0) {
+      alertsBody.innerHTML = '<div class="no-alerts">No alerts — traffic looks normal</div>';
+    } else {
+      alertsBody.innerHTML = data.alerts.map(a => `
+        <div class="alert-item alert-sev-${a.severity}">
+          <div class="alert-time">${a.time}</div>
+          <div class="alert-src">${a.src}</div>
+          <div class="alert-msg">${a.msg}</div>
+          ${a.technique ? `
+            <div class="alert-mitre">▶ ${a.technique.id} — ${a.technique.name}</div>
+            <div class="alert-tactic">Tactic: ${a.technique.tactic}</div>
+          ` : ''}
+        </div>`).join('');
+    }
+
+    // Threat intel
+    const threatBody = document.getElementById('threat-body');
+    if (data.threats.length === 0) {
+      threatBody.innerHTML = '<div class="empty">Checking IPs in background...</div>';
+    } else {
+      threatBody.innerHTML = data.threats.map(t => `
+        <div class="threat-item">
+          <div>
+            <div class="threat-ip">${t.ip}</div>
+            <div class="threat-reports">${t.reports} reports · ${t.isp || ''}</div>
+          </div>
+          <div class="threat-score ${scoreColor(t.score)}">${t.score}%</div>
+        </div>`).join('');
+    }
+
+// ML status
+    try {
+      const mlRes  = await fetch('/api/ml/status');
+      const mlData = await mlRes.json();
+      const mlBody = document.getElementById('ml-body');
+
+      const statusColor = mlData.is_trained ? '#4ade80' : '#fbbf24';
+      const barWidth    = mlData.is_collecting
+        ? Math.min(100, (mlData.training_size / 500) * 100)
+        : 100;
+
+      mlBody.innerHTML = `
+        <div style="padding:10px 14px;">
+          <div style="color:${statusColor}; font-size:12px; margin-bottom:8px;">
+            ${mlData.is_trained ? '● ACTIVE' : '● ' + mlData.status}
+          </div>
+          ${mlData.is_collecting ? `
+            <div style="background:#1a2035; border-radius:4px; height:4px; margin-bottom:8px;">
+              <div style="background:#fbbf24; height:4px; border-radius:4px; width:${barWidth}%; transition:width .5s;"></div>
+            </div>` : ''}
+          <div style="display:grid; grid-template-columns:1fr 1fr; gap:6px; margin-bottom:10px;">
+            <div style="background:#111827; border-radius:6px; padding:8px; text-align:center;">
+              <div style="font-size:18px; font-weight:bold; color:#ef4444;">${mlData.anomalies}</div>
+              <div style="font-size:10px; color:#555; text-transform:uppercase;">Anomalies</div>
+            </div>
+            <div style="background:#111827; border-radius:6px; padding:8px; text-align:center;">
+              <div style="font-size:18px; font-weight:bold; color:#00b4d8;">${mlData.total_checked}</div>
+              <div style="font-size:10px; color:#555; text-transform:uppercase;">Checked</div>
+            </div>
+          </div>
+          ${mlData.is_trained ? `
+            <button onclick="retrainML()" style="
+              width:100%; padding:6px; background:transparent;
+              border:1px solid #1e3a5f; color:#4a6fa5;
+              border-radius:4px; font-family:monospace;
+              font-size:11px; cursor:pointer;">
+              ↺ Retrain Model
+            </button>` : ''}
+        </div>`;
+    } catch(e) {}
+
+    // Top talkers
+    const topBody = document.getElementById('top-body');
+    topBody.innerHTML = data.top_ips.map(([ip, count]) => `
+      <div class="ip-item">
+        <div>
+          <div class="ip-addr">${ip}</div>
+        </div>
+        <div class="ip-count">${count}</div>
+      </div>`).join('');
+
+  } catch(e) {
+    console.error('Fetch error:', e);
+  }
+}
+
+// ── Chart setup ───────────────────────────────────────────
+const protoCtx    = document.getElementById('proto-chart').getContext('2d');
+const timelineCtx = document.getElementById('timeline-chart').getContext('2d');
+
+// Protocol pie chart
+const protoChart = new Chart(protoCtx, {
+  type: 'doughnut',
+  data: {
+    labels: ['TCP', 'UDP', 'ICMP', 'Other'],
+    datasets: [{
+      data: [0, 0, 0, 0],
+      backgroundColor: ['#4ade80', '#fbbf24', '#67e8f9', '#818cf8'],
+      borderColor:     ['#166534', '#854d0e', '#164e63', '#3730a3'],
+      borderWidth: 1,
+    }]
+  },
+  options: {
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: {
+      legend: {
+        position: 'right',
+        labels: {
+          color: '#888',
+          font: { size: 11, family: 'Courier New' },
+          boxWidth: 12,
+          padding: 8,
+        }
+      },
+      tooltip: {
+        callbacks: {
+          label: ctx => ` ${ctx.label}: ${ctx.parsed} packets`
+        }
+      }
+    }
+  }
+});
+
+// Timeline chart — rolling 60 second window
+const MAX_POINTS   = 60;
+const timeLabels   = Array(MAX_POINTS).fill('');
+const timeData     = Array(MAX_POINTS).fill(0);
+let   lastTotal    = 0;
+
+const timelineChart = new Chart(timelineCtx, {
+  type: 'line',
+  data: {
+    labels: timeLabels,
+    datasets: [{
+      label: 'Packets/sec',
+      data: timeData,
+      borderColor:     '#00b4d8',
+      backgroundColor: 'rgba(0,180,216,0.08)',
+      borderWidth: 1.5,
+      pointRadius: 0,
+      fill: true,
+      tension: 0.3,
+    }]
+  },
+  options: {
+    responsive: true,
+    maintainAspectRatio: false,
+    animation: false,
+    plugins: {
+      legend: { display: false },
+      tooltip: {
+        callbacks: {
+          label: ctx => ` ${ctx.parsed.y} pkt/s`
+        }
+      }
+    },
+    scales: {
+      x: {
+        display: false,
+      },
+      y: {
+        beginAtZero: true,
+        ticks: {
+          color: '#555',
+          font: { size: 10, family: 'Courier New' },
+          maxTicksLimit: 4,
+        },
+        grid: {
+          color: 'rgba(30,58,95,0.4)',
+        }
+      }
+    }
+  }
+});
+
+function updateCharts(statsData, currentTotal) {
+  // Update protocol pie chart
+  protoChart.data.datasets[0].data = [
+    statsData.TCP   || 0,
+    statsData.UDP   || 0,
+    statsData.ICMP  || 0,
+    (currentTotal - (statsData.TCP || 0) - (statsData.UDP || 0) - (statsData.ICMP || 0))
+  ];
+  protoChart.update('none');
+
+  // Update timeline — packets per second
+  const pps = Math.max(0, currentTotal - lastTotal);
+  lastTotal  = currentTotal;
+
+  timeData.push(pps);
+  timeData.shift();
+  timeLabels.push('');
+  timeLabels.shift();
+
+  timelineChart.data.datasets[0].data = [...timeData];
+  timelineChart.update('none');
+}
+
+async function retrainML() {
+      await fetch('/api/ml/retrain', { method: 'POST' });
+      alert('Retraining started — collecting new baseline for 2 minutes.');
+    }
+
+// Refresh every second
+refresh();
+setInterval(refresh, 1000);
+async function exportPcap() {
+  const btn = document.getElementById('export-btn');
+  btn.textContent = '⏳ Preparing...';
+  btn.disabled = true;
+
+  try {
+    const response = await fetch('/api/export/pcap');
+    if (!response.ok) {
+      const err = await response.json();
+      alert('Export failed: ' + err.error);
+      return;
+    }
+
+    // Trigger browser download
+    const blob     = await response.blob();
+    const url      = window.URL.createObjectURL(blob);
+    const a        = document.createElement('a');
+    a.href         = url;
+    a.download     = `capture_${new Date().toISOString().slice(0,19).replace(/:/g,'-')}.pcap`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    window.URL.revokeObjectURL(url);
+
+    btn.textContent = '✓ Downloaded!';
+    setTimeout(() => {
+      btn.textContent = '⬇ Export PCAP';
+      btn.disabled = false;
+    }, 2000);
+
+  } catch(e) {
+    alert('Export error: ' + e);
+    btn.textContent = '⬇ Export PCAP';
+    btn.disabled = false;
+  }
+}
+
+</script>
+</body>
+</html>
